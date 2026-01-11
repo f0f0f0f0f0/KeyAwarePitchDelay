@@ -1,0 +1,34 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# JUCE (will be cloned in CI)
+JUCE/
+
+# IDE files
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+*.sln
+*.vcxproj*
+.vs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.dll
+*.dylib
+*.so
+*.vst3
+*.component
+*.app
+
+# Installer output
+installer_output/
+*.iss

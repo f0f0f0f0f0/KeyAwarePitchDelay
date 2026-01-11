@@ -1,0 +1,120 @@
+name: Build Windows VST3
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Clone JUCE
+      run: |
+        git clone --depth 1 https://github.com/juce-framework/JUCE.git
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build VST3
+      run: |
+        cmake --build build --config Release --target KeyAwarePitchDelay_VST3
+
+    - name: List build artifacts
+      run: |
+        dir build\KeyAwarePitchDelay_artefacts\Release\VST3 /s
+
+    - name: Upload VST3 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: KeyAwarePitchDelay-VST3-Windows
+        path: build/KeyAwarePitchDelay_artefacts/Release/VST3/
+        retention-days: 30
+
+    - name: Create installer with Inno Setup
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        # Download Inno Setup
+        choco install innosetup -y
+
+        # Create installer script
+        @"
+        [Setup]
+        AppName=KeyAware Pitch Delay
+        AppVersion=${{ github.ref_name }}
+        AppPublisher=AAAPLUGIN
+        DefaultDirName={autopf}\Common Files\VST3
+        OutputDir=installer_output
+        OutputBaseFilename=KeyAwarePitchDelay_${{ github.ref_name }}_Windows_x64
+        Compression=lzma2
+        SolidCompression=yes
+        ArchitecturesInstallIn64BitMode=x64
+        DisableProgramGroupPage=yes
+
+        [Files]
+        Source: "build\KeyAwarePitchDelay_artefacts\Release\VST3\KeyAware Pitch Delay.vst3\*"; DestDir: "{app}\KeyAware Pitch Delay.vst3"; Flags: recursesubdirs createallsubdirs
+
+        [Messages]
+        SetupWindowTitle=KeyAware Pitch Delay Installer
+        "@ | Out-File -FilePath installer.iss -Encoding UTF8
+
+        # Build installer
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+    - name: Upload installer
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-artifact@v4
+      with:
+        name: KeyAwarePitchDelay-Installer-Windows
+        path: installer_output/*.exe
+        retention-days: 30
+
+  # Create GitHub Release when a tag is pushed
+  release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Download VST3 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: KeyAwarePitchDelay-VST3-Windows
+        path: vst3
+
+    - name: Download installer artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: KeyAwarePitchDelay-Installer-Windows
+        path: installer
+
+    - name: Create ZIP of VST3
+      run: |
+        cd vst3
+        zip -r ../KeyAwarePitchDelay_${{ github.ref_name }}_VST3_Windows_x64.zip .
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          KeyAwarePitchDelay_${{ github.ref_name }}_VST3_Windows_x64.zip
+          installer/*.exe
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
