@@ -293,6 +293,19 @@ void KeyAwarePitchDelayAudioProcessor::processBlock (juce::AudioBuffer<float>& b
         p.stepPan[i] = pan[i];
     }
 
+    // Post-FX chain parameters
+    p.saturationDrive = apvts.getRawParameterValue(kapd::param::saturationDrive)->load();
+    p.saturationMix = apvts.getRawParameterValue(kapd::param::saturationMix)->load();
+    p.diffusionAmount = apvts.getRawParameterValue(kapd::param::diffusionAmount)->load();
+    p.diffusionMix = apvts.getRawParameterValue(kapd::param::diffusionMix)->load();
+    p.lofiAmount = apvts.getRawParameterValue(kapd::param::lofiAmount)->load();
+    p.lofiMix = apvts.getRawParameterValue(kapd::param::lofiMix)->load();
+    p.reverbDecay = apvts.getRawParameterValue(kapd::param::reverbDecay)->load();
+    p.reverbDamping = apvts.getRawParameterValue(kapd::param::reverbDamping)->load();
+    p.reverbMix = apvts.getRawParameterValue(kapd::param::reverbMix)->load();
+    p.highpassFreq = apvts.getRawParameterValue(kapd::param::highpassFreq)->load();
+    p.lowpassFreq = apvts.getRawParameterValue(kapd::param::lowpassFreq)->load();
+
     dsp.process(buffer, midiMessages, p);
 }
 
@@ -405,6 +418,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout KeyAwarePitchDelayAudioProce
     layout.add (std::make_unique<APF> (kapd::param::stepPan6, "Step 6 Pan", panRange, 0.0f));
     layout.add (std::make_unique<APF> (kapd::param::stepPan7, "Step 7 Pan", panRange, 0.0f));
     layout.add (std::make_unique<APF> (kapd::param::stepPan8, "Step 8 Pan", panRange, 0.0f));
+
+    // === POST-FX CHAIN (Mood/Form2 inspired) ===
+    const juce::NormalisableRange<float> zeroOneRange (0.0f, 1.0f, 0.001f);
+
+    // Saturation (warm tube-style)
+    layout.add (std::make_unique<APF> (kapd::param::saturationDrive, "Saturation Drive", zeroOneRange, 0.0f));
+    layout.add (std::make_unique<APF> (kapd::param::saturationMix, "Saturation Mix", zeroOneRange, 0.5f));
+
+    // Diffusion (smear/blur delays)
+    layout.add (std::make_unique<APF> (kapd::param::diffusionAmount, "Diffusion Amount", zeroOneRange, 0.0f));
+    layout.add (std::make_unique<APF> (kapd::param::diffusionMix, "Diffusion Mix", zeroOneRange, 0.5f));
+
+    // Lo-Fi (bit crush, sample rate reduction, wow/flutter)
+    layout.add (std::make_unique<APF> (kapd::param::lofiAmount, "Lo-Fi Amount", zeroOneRange, 0.0f));
+    layout.add (std::make_unique<APF> (kapd::param::lofiMix, "Lo-Fi Mix", zeroOneRange, 0.5f));
+
+    // Room reverb
+    layout.add (std::make_unique<APF> (kapd::param::reverbDecay, "Reverb Decay", zeroOneRange, 0.5f));
+    layout.add (std::make_unique<APF> (kapd::param::reverbDamping, "Reverb Damping", zeroOneRange, 0.5f));
+    layout.add (std::make_unique<APF> (kapd::param::reverbMix, "Reverb Mix", zeroOneRange, 0.0f));
+
+    // Filters (HP/LP)
+    layout.add (std::make_unique<APF> (kapd::param::highpassFreq, "Highpass Freq",
+                                       juce::NormalisableRange<float> (20.0f, 2000.0f, 1.0f, 0.3f), 20.0f));
+    layout.add (std::make_unique<APF> (kapd::param::lowpassFreq, "Lowpass Freq",
+                                       juce::NormalisableRange<float> (200.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
 
     return layout;
 }

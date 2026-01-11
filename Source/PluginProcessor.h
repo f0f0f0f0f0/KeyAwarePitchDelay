@@ -80,6 +80,19 @@ namespace kapd
         static constexpr const char* stepPan6 = "stepPan6";
         static constexpr const char* stepPan7 = "stepPan7";
         static constexpr const char* stepPan8 = "stepPan8";
+
+        // Post-FX chain (Mood/Form2 inspired)
+        static constexpr const char* saturationDrive = "saturationDrive";
+        static constexpr const char* saturationMix   = "saturationMix";
+        static constexpr const char* diffusionAmount = "diffusionAmount";
+        static constexpr const char* diffusionMix    = "diffusionMix";
+        static constexpr const char* lofiAmount      = "lofiAmount";
+        static constexpr const char* lofiMix         = "lofiMix";
+        static constexpr const char* reverbDecay     = "reverbDecay";
+        static constexpr const char* reverbDamping   = "reverbDamping";
+        static constexpr const char* reverbMix       = "reverbMix";
+        static constexpr const char* highpassFreq    = "highpassFreq";
+        static constexpr const char* lowpassFreq     = "lowpassFreq";
     }
 
     struct ChoiceLists

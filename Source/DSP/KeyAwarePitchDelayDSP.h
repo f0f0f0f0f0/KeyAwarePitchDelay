@@ -5,6 +5,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <random>
 
 namespace kapd
 {
@@ -14,6 +15,429 @@ namespace kapd
     {
         return std::pow(2.0f, semitones / 12.0f);
     }
+
+    //==============================
+    // Simple one-pole smoothing filter
+    class OnePoleSmoother
+    {
+    public:
+        void prepare(float sr) { sampleRate = sr; reset(); }
+        void reset() { z1 = 0.0f; }
+        void setTime(float ms) { coeff = std::exp(-1.0f / (ms * 0.001f * sampleRate + 0.0001f)); }
+        float process(float x) { z1 = x + coeff * (z1 - x); return z1; }
+    private:
+        float sampleRate = 44100.0f;
+        float coeff = 0.99f;
+        float z1 = 0.0f;
+    };
+
+    //==============================
+    // Biquad filter for HP/LP
+    class BiquadFilter
+    {
+    public:
+        enum Type { LowPass, HighPass };
+
+        void prepare(float sr) { sampleRate = sr; reset(); }
+        void reset() { x1 = x2 = y1 = y2 = 0.0f; }
+
+        void setParams(Type type, float freq, float q = 0.707f)
+        {
+            freq = juce::jlimit(20.0f, sampleRate * 0.45f, freq);
+            float w0 = 2.0f * juce::MathConstants<float>::pi * freq / sampleRate;
+            float cosw0 = std::cos(w0);
+            float sinw0 = std::sin(w0);
+            float alpha = sinw0 / (2.0f * q);
+
+            if (type == LowPass)
+            {
+                b0 = (1.0f - cosw0) / 2.0f;
+                b1 = 1.0f - cosw0;
+                b2 = (1.0f - cosw0) / 2.0f;
+            }
+            else // HighPass
+            {
+                b0 = (1.0f + cosw0) / 2.0f;
+                b1 = -(1.0f + cosw0);
+                b2 = (1.0f + cosw0) / 2.0f;
+            }
+            float a0 = 1.0f + alpha;
+            a1 = -2.0f * cosw0;
+            a2 = 1.0f - alpha;
+
+            // Normalize
+            b0 /= a0; b1 /= a0; b2 /= a0;
+            a1 /= a0; a2 /= a0;
+        }
+
+        float process(float x)
+        {
+            float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1; x1 = x;
+            y2 = y1; y1 = y;
+            return y;
+        }
+
+    private:
+        float sampleRate = 44100.0f;
+        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+        float a1 = 0.0f, a2 = 0.0f;
+        float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f;
+    };
+
+    //==============================
+    // Allpass filter for diffusion
+    class AllpassDelay
+    {
+    public:
+        void prepare(float sr, float maxMs = 100.0f)
+        {
+            sampleRate = sr;
+            int maxSamples = (int)(maxMs * 0.001f * sr) + 1;
+            buffer.assign((size_t)maxSamples, 0.0f);
+            writePos = 0;
+            delaySamples = 1;
+        }
+
+        void reset() { std::fill(buffer.begin(), buffer.end(), 0.0f); writePos = 0; }
+
+        void setDelay(float ms)
+        {
+            delaySamples = juce::jlimit(1, (int)buffer.size() - 1, (int)(ms * 0.001f * sampleRate));
+        }
+
+        float process(float x, float g = 0.5f)
+        {
+            int readPos = writePos - delaySamples;
+            if (readPos < 0) readPos += (int)buffer.size();
+
+            float delayed = buffer[(size_t)readPos];
+            float v = x - g * delayed;
+            buffer[(size_t)writePos] = v;
+            writePos = (writePos + 1) % (int)buffer.size();
+
+            return delayed + g * v;
+        }
+
+    private:
+        float sampleRate = 44100.0f;
+        std::vector<float> buffer;
+        int writePos = 0;
+        int delaySamples = 1;
+    };
+
+    //==============================
+    // Simple delay line for diffusion/verb
+    class SimpleDelay
+    {
+    public:
+        void prepare(float sr, float maxMs = 500.0f)
+        {
+            sampleRate = sr;
+            int maxSamples = (int)(maxMs * 0.001f * sr) + 1;
+            buffer.assign((size_t)maxSamples, 0.0f);
+            writePos = 0;
+        }
+
+        void reset() { std::fill(buffer.begin(), buffer.end(), 0.0f); writePos = 0; }
+
+        void setDelay(float ms)
+        {
+            delayMs = juce::jlimit(0.1f, (float)(buffer.size() - 1) / sampleRate * 1000.0f, ms);
+        }
+
+        float read(float ms) const
+        {
+            float delaySamples = ms * 0.001f * sampleRate;
+            delaySamples = juce::jlimit(0.0f, (float)buffer.size() - 1.0f, delaySamples);
+
+            float readPosF = (float)writePos - delaySamples;
+            if (readPosF < 0) readPosF += (float)buffer.size();
+
+            int i0 = (int)readPosF;
+            int i1 = (i0 + 1) % (int)buffer.size();
+            float frac = readPosF - (float)i0;
+
+            return buffer[(size_t)i0] * (1.0f - frac) + buffer[(size_t)i1] * frac;
+        }
+
+        float read() const { return read(delayMs); }
+
+        void write(float x)
+        {
+            buffer[(size_t)writePos] = x;
+            writePos = (writePos + 1) % (int)buffer.size();
+        }
+
+    private:
+        float sampleRate = 44100.0f;
+        float delayMs = 10.0f;
+        std::vector<float> buffer;
+        int writePos = 0;
+    };
+
+    //==============================
+    // Warm saturation (tube-style asymmetric soft clip)
+    class WarmSaturation
+    {
+    public:
+        void setDrive(float d) { drive = juce::jlimit(0.0f, 1.0f, d); }
+        void setMix(float m) { mix = juce::jlimit(0.0f, 1.0f, m); }
+
+        float process(float x)
+        {
+            if (drive < 0.01f) return x;
+
+            // Pre-gain based on drive
+            float preGain = 1.0f + drive * 4.0f;
+            float saturated = x * preGain;
+
+            // Asymmetric soft clipping (tube-like)
+            if (saturated > 0.0f)
+                saturated = std::tanh(saturated * 1.2f);
+            else
+                saturated = std::tanh(saturated * 0.8f) * 1.1f; // slight asymmetry
+
+            // Add subtle even harmonics (warmth)
+            float evenHarm = saturated * saturated * 0.1f * drive;
+            saturated += evenHarm;
+
+            // Compensate gain
+            saturated /= preGain * 0.7f;
+
+            return x * (1.0f - mix) + saturated * mix;
+        }
+
+    private:
+        float drive = 0.0f;
+        float mix = 0.5f;
+    };
+
+    //==============================
+    // Lo-Fi effect (bit crush + sample rate reduction + wow/flutter)
+    class LoFiProcessor
+    {
+    public:
+        void prepare(float sr)
+        {
+            sampleRate = sr;
+            holdL = holdR = 0.0f;
+            holdCounter = 0;
+            phase = 0.0f;
+            rng.seed(42);
+        }
+
+        void setAmount(float amt) { amount = juce::jlimit(0.0f, 1.0f, amt); }
+        void setMix(float m) { mix = juce::jlimit(0.0f, 1.0f, m); }
+
+        void process(float& L, float& R)
+        {
+            if (amount < 0.01f) return;
+
+            float dryL = L, dryR = R;
+
+            // Sample rate reduction (subtle - from full to 1/8)
+            int holdTime = 1 + (int)(amount * 7.0f);
+            if (holdCounter >= holdTime)
+            {
+                holdL = L;
+                holdR = R;
+                holdCounter = 0;
+            }
+            holdCounter++;
+            L = holdL;
+            R = holdR;
+
+            // Bit depth reduction (subtle - 16 bit to ~6 bit)
+            float bits = 16.0f - amount * 10.0f;
+            float levels = std::pow(2.0f, bits);
+            L = std::round(L * levels) / levels;
+            R = std::round(R * levels) / levels;
+
+            // Wow/flutter (subtle pitch wobble)
+            phase += (0.3f + amount * 2.0f) / sampleRate;
+            if (phase > 1.0f) phase -= 1.0f;
+            float wobble = std::sin(phase * 2.0f * juce::MathConstants<float>::pi) * amount * 0.002f;
+            // Just modulate amplitude slightly for "tape" feel
+            float mod = 1.0f + wobble;
+            L *= mod;
+            R *= mod;
+
+            // Mix
+            L = dryL * (1.0f - mix) + L * mix;
+            R = dryR * (1.0f - mix) + R * mix;
+        }
+
+    private:
+        float sampleRate = 44100.0f;
+        float amount = 0.0f;
+        float mix = 0.5f;
+        float holdL = 0.0f, holdR = 0.0f;
+        int holdCounter = 0;
+        float phase = 0.0f;
+        std::mt19937 rng;
+    };
+
+    //==============================
+    // Diffusion network (allpass cascade for smearing)
+    class Diffuser
+    {
+    public:
+        void prepare(float sr)
+        {
+            sampleRate = sr;
+            for (int i = 0; i < 4; ++i)
+            {
+                apL[i].prepare(sr, 80.0f);
+                apR[i].prepare(sr, 80.0f);
+            }
+            // Prime numbers for interesting diffusion
+            apL[0].setDelay(13.7f); apR[0].setDelay(14.3f);
+            apL[1].setDelay(23.1f); apR[1].setDelay(24.7f);
+            apL[2].setDelay(37.3f); apR[2].setDelay(38.9f);
+            apL[3].setDelay(53.7f); apR[3].setDelay(55.1f);
+        }
+
+        void reset()
+        {
+            for (int i = 0; i < 4; ++i)
+            {
+                apL[i].reset();
+                apR[i].reset();
+            }
+        }
+
+        void setAmount(float amt) { amount = juce::jlimit(0.0f, 1.0f, amt); }
+        void setMix(float m) { mix = juce::jlimit(0.0f, 1.0f, m); }
+
+        void process(float& L, float& R)
+        {
+            if (amount < 0.01f) return;
+
+            float dryL = L, dryR = R;
+            float g = 0.3f + amount * 0.4f; // allpass coefficient
+
+            // Cascade of allpass filters creates diffusion
+            for (int i = 0; i < 4; ++i)
+            {
+                L = apL[i].process(L, g);
+                R = apR[i].process(R, g);
+            }
+
+            L = dryL * (1.0f - mix) + L * mix;
+            R = dryR * (1.0f - mix) + R * mix;
+        }
+
+    private:
+        float sampleRate = 44100.0f;
+        float amount = 0.5f;
+        float mix = 0.5f;
+        AllpassDelay apL[4], apR[4];
+    };
+
+    //==============================
+    // Simple room reverb (Schroeder-style with modulation)
+    class RoomReverb
+    {
+    public:
+        void prepare(float sr)
+        {
+            sampleRate = sr;
+
+            // Comb filters with prime-ish delay times
+            for (int i = 0; i < 4; ++i)
+            {
+                combL[i].prepare(sr, 100.0f);
+                combR[i].prepare(sr, 100.0f);
+            }
+            combL[0].setDelay(29.7f); combR[0].setDelay(30.3f);
+            combL[1].setDelay(37.1f); combR[1].setDelay(38.7f);
+            combL[2].setDelay(41.1f); combR[2].setDelay(42.3f);
+            combL[3].setDelay(43.7f); combR[3].setDelay(44.9f);
+
+            // Allpass for diffusion
+            for (int i = 0; i < 2; ++i)
+            {
+                apL[i].prepare(sr, 20.0f);
+                apR[i].prepare(sr, 20.0f);
+            }
+            apL[0].setDelay(5.0f); apR[0].setDelay(5.5f);
+            apL[1].setDelay(1.7f); apR[1].setDelay(2.1f);
+
+            lpfL.prepare(sr);
+            lpfR.prepare(sr);
+            lpfL.setParams(BiquadFilter::LowPass, 6000.0f, 0.5f);
+            lpfR.setParams(BiquadFilter::LowPass, 6000.0f, 0.5f);
+        }
+
+        void reset()
+        {
+            for (int i = 0; i < 4; ++i)
+            {
+                combL[i].reset();
+                combR[i].reset();
+            }
+            for (int i = 0; i < 2; ++i)
+            {
+                apL[i].reset();
+                apR[i].reset();
+            }
+            lpfL.reset();
+            lpfR.reset();
+        }
+
+        void setDecay(float d) { decay = juce::jlimit(0.0f, 1.0f, d); }
+        void setMix(float m) { mix = juce::jlimit(0.0f, 1.0f, m); }
+        void setDamping(float d)
+        {
+            float freq = 2000.0f + (1.0f - d) * 8000.0f;
+            lpfL.setParams(BiquadFilter::LowPass, freq, 0.5f);
+            lpfR.setParams(BiquadFilter::LowPass, freq, 0.5f);
+        }
+
+        void process(float& L, float& R)
+        {
+            float dryL = L, dryR = R;
+
+            // Parallel comb filters with feedback
+            float fb = 0.7f + decay * 0.25f;
+            float combOutL = 0.0f, combOutR = 0.0f;
+
+            for (int i = 0; i < 4; ++i)
+            {
+                float cL = combL[i].read();
+                float cR = combR[i].read();
+                combL[i].write(L + cL * fb);
+                combR[i].write(R + cR * fb);
+                combOutL += cL;
+                combOutR += cR;
+            }
+            combOutL *= 0.25f;
+            combOutR *= 0.25f;
+
+            // Series allpass for diffusion
+            for (int i = 0; i < 2; ++i)
+            {
+                combOutL = apL[i].process(combOutL, 0.5f);
+                combOutR = apR[i].process(combOutR, 0.5f);
+            }
+
+            // Damping
+            combOutL = lpfL.process(combOutL);
+            combOutR = lpfR.process(combOutR);
+
+            L = dryL * (1.0f - mix) + combOutL * mix;
+            R = dryR * (1.0f - mix) + combOutR * mix;
+        }
+
+    private:
+        float sampleRate = 44100.0f;
+        float decay = 0.5f;
+        float mix = 0.3f;
+        SimpleDelay combL[4], combR[4];
+        AllpassDelay apL[2], apR[2];
+        BiquadFilter lpfL, lpfR;
+    };
 
     //==============================
     // Scale + diatonic mapping helpers
@@ -344,6 +768,28 @@ namespace kapd
 
             float stepLevel[8] = { 1,1,1,1,1,1,1,1 };
             float stepPan[8]   = { 0,0,0,0,0,0,0,0 };
+
+            // === POST-FX CHAIN (Mood/Form2 inspired) ===
+            // Saturation
+            float saturationDrive = 0.0f;   // 0-1
+            float saturationMix = 0.5f;     // 0-1
+
+            // Diffusion (smear/blur)
+            float diffusionAmount = 0.0f;   // 0-1
+            float diffusionMix = 0.5f;      // 0-1
+
+            // Lo-Fi
+            float lofiAmount = 0.0f;        // 0-1
+            float lofiMix = 0.5f;           // 0-1
+
+            // Room Reverb
+            float reverbDecay = 0.5f;       // 0-1
+            float reverbDamping = 0.5f;     // 0-1
+            float reverbMix = 0.0f;         // 0-1
+
+            // Filters
+            float highpassFreq = 20.0f;     // 20-2000 Hz
+            float lowpassFreq = 20000.0f;   // 200-20000 Hz
         };
 
         void prepare(double newSampleRate, int maxBlockSize, int numChannels)
@@ -364,6 +810,15 @@ namespace kapd
                 tapsR[i].prepare(sampleRate);
             }
 
+            // Prepare post-FX chain
+            diffuser.prepare(sampleRate);
+            lofi.prepare(sampleRate);
+            reverb.prepare(sampleRate);
+            hpfL.prepare(sampleRate);
+            hpfR.prepare(sampleRate);
+            lpfL.prepare(sampleRate);
+            lpfR.prepare(sampleRate);
+
             scale.set(0, 0, 0);
             reset();
         }
@@ -379,6 +834,12 @@ namespace kapd
                 tapsL[i].reset();
                 tapsR[i].reset();
             }
+
+            // Reset post-FX chain
+            diffuser.reset();
+            reverb.reset();
+            hpfL.reset(); hpfR.reset();
+            lpfL.reset(); lpfR.reset();
 
             sequencePhase = 0;
             samplesToNextTrigger = 0;
@@ -436,6 +897,27 @@ namespace kapd
                 tapsR[i].setRatio(stepRatios[i]);
             }
 
+            // Update post-FX parameters
+            saturationL.setDrive(p.saturationDrive);
+            saturationL.setMix(p.saturationMix);
+            saturationR.setDrive(p.saturationDrive);
+            saturationR.setMix(p.saturationMix);
+
+            diffuser.setAmount(p.diffusionAmount);
+            diffuser.setMix(p.diffusionMix);
+
+            lofi.setAmount(p.lofiAmount);
+            lofi.setMix(p.lofiMix);
+
+            reverb.setDecay(p.reverbDecay);
+            reverb.setDamping(p.reverbDamping);
+            reverb.setMix(p.reverbMix);
+
+            hpfL.setParams(BiquadFilter::HighPass, p.highpassFreq, 0.707f);
+            hpfR.setParams(BiquadFilter::HighPass, p.highpassFreq, 0.707f);
+            lpfL.setParams(BiquadFilter::LowPass, p.lowpassFreq, 0.707f);
+            lpfR.setParams(BiquadFilter::LowPass, p.lowpassFreq, 0.707f);
+
             // Process audio
             const float mix = juce::jlimit(0.0f, 1.0f, p.mix);
             const float fb = juce::jlimit(0.0f, 0.95f, p.feedback);
@@ -488,7 +970,27 @@ namespace kapd
                     wetR += tapR * level * panR;
                 }
 
-                // Write to delay buffer (input + feedback)
+                // === POST-FX CHAIN on wet signal ===
+                // 1. Saturation (warmth)
+                wetL = saturationL.process(wetL);
+                wetR = saturationR.process(wetR);
+
+                // 2. Diffusion (smear/blur)
+                diffuser.process(wetL, wetR);
+
+                // 3. Lo-Fi (bit crush, sample rate, wow/flutter)
+                lofi.process(wetL, wetR);
+
+                // 4. Filters (HP then LP)
+                wetL = hpfL.process(wetL);
+                wetR = hpfR.process(wetR);
+                wetL = lpfL.process(wetL);
+                wetR = lpfR.process(wetR);
+
+                // 5. Room reverb (last in chain for ambient tail)
+                reverb.process(wetL, wetR);
+
+                // Write to delay buffer (input + feedback from post-processed wet)
                 delayBufferL[(size_t) writePos] = inL + wetL * fb;
                 delayBufferR[(size_t) writePos] = inR + wetR * fb;
 
@@ -525,6 +1027,14 @@ namespace kapd
         int sequencePhase = 0;
         int samplesToNextTrigger = 0;
         int lastMidiNote = 60;
+
+        // Post-FX chain processors
+        WarmSaturation saturationL, saturationR;
+        Diffuser diffuser;
+        LoFiProcessor lofi;
+        RoomReverb reverb;
+        BiquadFilter hpfL, hpfR;
+        BiquadFilter lpfL, lpfR;
 
         int computeDelaySamples(const Parameters& p) const
         {
