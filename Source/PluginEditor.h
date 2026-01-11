@@ -52,6 +52,13 @@ private:
     static constexpr int kScaleButtons = 12;
     std::array<juce::ToggleButton, kScaleButtons> customScaleButtons;
 
+    // Post-FX controls
+    juce::Slider saturationDriveSlider, saturationMixSlider;
+    juce::Slider diffusionAmountSlider, diffusionMixSlider;
+    juce::Slider lofiAmountSlider, lofiMixSlider;
+    juce::Slider reverbDecaySlider, reverbDampingSlider, reverbMixSlider;
+    juce::Slider highpassFreqSlider, lowpassFreqSlider;
+
     // Labels
     juce::Label keyRootLabel, scaleTypeLabel, modeLabel, routingLabel;
     juce::Label pitchSourceLabel, trackingLabel, fixedNoteLabel;
@@ -62,6 +69,13 @@ private:
     juce::Label intervalStepsLabel, toneStepsLabel;
     juce::Label stepLevelLabel, stepPanLabel;
     juce::Label customScaleLabel;
+
+    // Post-FX labels
+    juce::Label saturationLabel, diffusionLabel, lofiLabel, reverbLabel, filterLabel;
+    juce::Label satDriveLabel, satMixLabel, diffAmtLabel, diffMixLabel;
+    juce::Label lofiAmtLabel, lofiMixLabel;
+    juce::Label revDecayLabel, revDampLabel, revMixLabel;
+    juce::Label hpfLabel, lpfLabel;
 
     // Attachments
     std::unique_ptr<APVTS::ComboBoxAttachment> keyRootAttach, scaleTypeAttach;
@@ -82,6 +96,13 @@ private:
     std::array<std::unique_ptr<APVTS::SliderAttachment>, kMaxSteps> stepPanAttach;
 
     std::array<std::unique_ptr<APVTS::ButtonAttachment>, kScaleButtons> customScaleAttach;
+
+    // Post-FX attachments
+    std::unique_ptr<APVTS::SliderAttachment> saturationDriveAttach, saturationMixAttach;
+    std::unique_ptr<APVTS::SliderAttachment> diffusionAmountAttach, diffusionMixAttach;
+    std::unique_ptr<APVTS::SliderAttachment> lofiAmountAttach, lofiMixAttach;
+    std::unique_ptr<APVTS::SliderAttachment> reverbDecayAttach, reverbDampingAttach, reverbMixAttach;
+    std::unique_ptr<APVTS::SliderAttachment> highpassFreqAttach, lowpassFreqAttach;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyAwarePitchDelayAudioProcessorEditor)
 };

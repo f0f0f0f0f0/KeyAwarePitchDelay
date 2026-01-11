@@ -16,14 +16,20 @@ static void addChoiceItems(juce::ComboBox& box, const juce::StringArray& items)
 static void initKnob(juce::Slider& s)
 {
     s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 18);
+    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 16);
+}
+
+static void initSmallKnob(juce::Slider& s)
+{
+    s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
 }
 
 KeyAwarePitchDelayAudioProcessorEditor::KeyAwarePitchDelayAudioProcessorEditor (KeyAwarePitchDelayAudioProcessor& p)
     : AudioProcessorEditor (&p), processor (p)
 {
     setLookAndFeel(&retroLookAndFeel);
-    setSize (1000, 720);
+    setSize (1100, 780);
 
     // Populate combos
     addChoiceItems(keyRootBox, kapd::ChoiceLists::keyRoots());
@@ -34,68 +40,56 @@ KeyAwarePitchDelayAudioProcessorEditor::KeyAwarePitchDelayAudioProcessorEditor (
     addChoiceItems(delayDivisionBox, kapd::ChoiceLists::delayDivisions());
 
     // Toggle buttons with descriptive text
-    modeButton.setButtonText("Tone Seq");      // OFF=Diatonic Interval, ON=Scale Tone Sequence
-    routingButton.setButtonText("Serial");     // Will update dynamically
-    trackingSourceButton.setButtonText("Loop"); // OFF=Input, ON=Feedback/Loop
+    modeButton.setButtonText("Tone Seq");
+    routingButton.setButtonText("Serial");
+    trackingSourceButton.setButtonText("Loop");
 
-    // Make toggle buttons update their text when clicked
     routingButton.onClick = [this]() {
         routingButton.setButtonText(routingButton.getToggleState() ? "Parallel" : "Serial");
     };
 
-    // Clicking delay ms knob disables sync mode
     delayMsSlider.onDragStart = [this]() {
         if (auto* param = processor.apvts.getParameter(kapd::param::tempoSync))
             param->setValueNotifyingHost(0.0f);
     };
 
-    // Clicking division dropdown enables sync mode
     delayDivisionBox.onChange = [this]() {
         if (auto* param = processor.apvts.getParameter(kapd::param::tempoSync))
             param->setValueNotifyingHost(1.0f);
     };
 
-    // Custom scale buttons (intervals relative to root)
+    // Custom scale buttons
     static const juce::StringArray customLabels { "1", "b2", "2", "b3", "3", "4", "#4", "5", "b6", "6", "b7", "7" };
     for (int i = 0; i < (int) customScaleButtons.size(); ++i)
         customScaleButtons[(size_t) i].setButtonText(customLabels[i]);
 
-    // Interval step sliders (0-14 snapping to integers) with descriptive labels
+    // Interval step sliders
     static const juce::StringArray intervalLabels {
-        "-7 (8ve down)", "-6 (7th down)", "-5 (6th down)", "-4 (5th down)",
-        "-3 (4th down)", "-2 (3rd down)", "-1 (2nd down)", "0 (unison)",
-        "+1 (2nd up)", "+2 (3rd up)", "+3 (4th up)", "+4 (5th up)",
-        "+5 (6th up)", "+6 (7th up)", "+7 (8ve up)"
+        "-7", "-6", "-5", "-4", "-3", "-2", "-1", "0", "+1", "+2", "+3", "+4", "+5", "+6", "+7"
     };
     for (auto& s : intervalStepSliders)
     {
         s.setSliderStyle(juce::Slider::LinearVertical);
-        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 90, 20);
+        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 40, 18);
         s.setRange(0, 14, 1);
         s.textFromValueFunction = [](double v) { return intervalLabels[(int)v]; };
-        s.valueFromTextFunction = [](const juce::String& t) {
-            return (double) intervalLabels.indexOf(t);
-        };
+        s.valueFromTextFunction = [](const juce::String& t) { return (double) intervalLabels.indexOf(t); };
         s.updateText();
     }
 
-    // Tone step sliders (0-11 snapping to integers) with descriptive labels
-    static const juce::StringArray toneLabels {
-        "1 (Root)", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"
-    };
+    // Tone step sliders
+    static const juce::StringArray toneLabels { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12" };
     for (auto& s : toneStepSliders)
     {
         s.setSliderStyle(juce::Slider::LinearVertical);
-        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 70, 20);
+        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 40, 18);
         s.setRange(0, 11, 1);
         s.textFromValueFunction = [](double v) { return toneLabels[(int)v]; };
-        s.valueFromTextFunction = [](const juce::String& t) {
-            return (double) toneLabels.indexOf(t);
-        };
+        s.valueFromTextFunction = [](const juce::String& t) { return (double) toneLabels.indexOf(t); };
         s.updateText();
     }
 
-    // Sliders
+    // Main control knobs
     initKnob(delayMsSlider);
     initKnob(feedbackSlider);
     initKnob(mixSlider);
@@ -103,58 +97,81 @@ KeyAwarePitchDelayAudioProcessorEditor::KeyAwarePitchDelayAudioProcessorEditor (
     initKnob(smoothingSlider);
     initKnob(transientSensitivitySlider);
 
-    // Step level sliders - mixer style faders
+    // Step level/pan sliders
     for (auto& s : stepLevelSliders)
     {
         s.setSliderStyle(juce::Slider::LinearVertical);
-        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 40, 16);
+        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     }
 
-    // Step pan sliders - horizontal for intuitive L/R control
     for (auto& s : stepPanSliders)
     {
         s.setSliderStyle(juce::Slider::LinearHorizontal);
-        s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 40, 16);
+        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     }
 
     sequenceLengthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    sequenceLengthSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 70, 18);
+    sequenceLengthSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 40, 18);
+
+    // === POST-FX KNOBS ===
+    initSmallKnob(saturationDriveSlider);
+    initSmallKnob(saturationMixSlider);
+    initSmallKnob(diffusionAmountSlider);
+    initSmallKnob(diffusionMixSlider);
+    initSmallKnob(lofiAmountSlider);
+    initSmallKnob(lofiMixSlider);
+    initSmallKnob(reverbDecaySlider);
+    initSmallKnob(reverbDampingSlider);
+    initSmallKnob(reverbMixSlider);
+    initSmallKnob(highpassFreqSlider);
+    initSmallKnob(lowpassFreqSlider);
 
     // Labels
-    initLabel(keyRootLabel, "Key");
-    initLabel(scaleTypeLabel, "Scale");
-    initLabel(modeLabel, "Mode");
-    initLabel(routingLabel, "Routing");
+    initLabel(keyRootLabel, "KEY");
+    initLabel(scaleTypeLabel, "SCALE");
+    initLabel(modeLabel, "MODE");
+    initLabel(routingLabel, "ROUTING");
+    initLabel(pitchSourceLabel, "PITCH SRC");
+    initLabel(trackingLabel, "TRACK");
+    initLabel(fixedNoteLabel, "FIXED");
+    initLabel(snapToChordLabel, "CHORD");
+    initLabel(chordSnapModeLabel, "SNAP");
+    initLabel(advanceOnTransientLabel, "TRANS");
+    initLabel(transientSensitivityLabel, "SENS");
+    initLabel(tempoSyncLabel, "SYNC");
+    initLabel(delayDivisionLabel, "DIV");
+    initLabel(delayMsLabel, "TIME");
+    initLabel(feedbackLabel, "FDBK");
+    initLabel(mixLabel, "MIX");
+    initLabel(outputGainLabel, "OUT");
+    initLabel(sequenceLengthLabel, "STEPS");
+    initLabel(smoothingLabel, "SMOOTH");
+    initLabel(intervalStepsLabel, "INTERVAL STEPS");
+    initLabel(toneStepsLabel, "TONE STEPS");
+    initLabel(stepLevelLabel, "LEVEL");
+    initLabel(stepPanLabel, "PAN");
+    initLabel(customScaleLabel, "CUSTOM SCALE");
 
-    initLabel(pitchSourceLabel, "Pitch Src");
-    initLabel(trackingLabel, "Track");
-    initLabel(fixedNoteLabel, "Fixed Note");
-
-    initLabel(snapToChordLabel, "Chord");
-    initLabel(chordSnapModeLabel, "Snap Mode");
-    initLabel(advanceOnTransientLabel, "Transient");
-    initLabel(transientSensitivityLabel, "Sens.");
-
-    initLabel(tempoSyncLabel, "Sync");
-    initLabel(delayDivisionLabel, "Division");
-    initLabel(delayMsLabel, "Delay (ms)");
-
-    initLabel(feedbackLabel, "Feedback");
-    initLabel(mixLabel, "Mix");
-    initLabel(outputGainLabel, "Output (dB)");
-    initLabel(sequenceLengthLabel, "Seq Len");
-    initLabel(smoothingLabel, "Smooth (ms)");
-
-    initLabel(intervalStepsLabel, "Interval Steps (Mode 1)");
-    initLabel(toneStepsLabel, "Tone Steps (Mode 2)");
-
-    initLabel(stepLevelLabel, "Step Level");
-    initLabel(stepPanLabel, "Step Pan");
-    initLabel(customScaleLabel, "Custom Scale");
+    // Post-FX labels
+    initLabel(saturationLabel, "SATURATION");
+    initLabel(diffusionLabel, "DIFFUSION");
+    initLabel(lofiLabel, "LO-FI");
+    initLabel(reverbLabel, "REVERB");
+    initLabel(filterLabel, "FILTER");
+    initLabel(satDriveLabel, "DRV");
+    initLabel(satMixLabel, "MIX");
+    initLabel(diffAmtLabel, "AMT");
+    initLabel(diffMixLabel, "MIX");
+    initLabel(lofiAmtLabel, "AMT");
+    initLabel(lofiMixLabel, "MIX");
+    initLabel(revDecayLabel, "DEC");
+    initLabel(revDampLabel, "DMP");
+    initLabel(revMixLabel, "MIX");
+    initLabel(hpfLabel, "HPF");
+    initLabel(lpfLabel, "LPF");
 
     // Add components
-    auto addPair = [this](juce::Label& l, juce::Component& c)
-    {
+    auto addPair = [this](juce::Label& l, juce::Component& c) {
         addAndMakeVisible(l);
         addAndMakeVisible(c);
     };
@@ -163,21 +180,16 @@ KeyAwarePitchDelayAudioProcessorEditor::KeyAwarePitchDelayAudioProcessorEditor (
     addPair(scaleTypeLabel, scaleTypeBox);
     addPair(modeLabel, modeButton);
     addPair(routingLabel, routingButton);
-
     addPair(pitchSourceLabel, pitchSourceBox);
     addPair(trackingLabel, trackingSourceButton);
     addPair(fixedNoteLabel, fixedNoteBox);
-
     addPair(snapToChordLabel, snapToChordButton);
     addPair(chordSnapModeLabel, chordSnapModeBox);
-
     addPair(tempoSyncLabel, tempoSyncButton);
     addPair(delayDivisionLabel, delayDivisionBox);
     addPair(delayMsLabel, delayMsSlider);
-
     addPair(advanceOnTransientLabel, advanceOnTransientButton);
     addPair(transientSensitivityLabel, transientSensitivitySlider);
-
     addPair(feedbackLabel, feedbackSlider);
     addPair(mixLabel, mixSlider);
     addPair(outputGainLabel, outputGainSlider);
@@ -186,17 +198,33 @@ KeyAwarePitchDelayAudioProcessorEditor::KeyAwarePitchDelayAudioProcessorEditor (
 
     addAndMakeVisible(intervalStepsLabel);
     addAndMakeVisible(toneStepsLabel);
-
     addAndMakeVisible(stepLevelLabel);
     addAndMakeVisible(stepPanLabel);
     addAndMakeVisible(customScaleLabel);
 
     for (auto& s : intervalStepSliders) addAndMakeVisible(s);
     for (auto& s : toneStepSliders) addAndMakeVisible(s);
-
     for (auto& s : stepLevelSliders) addAndMakeVisible(s);
     for (auto& s : stepPanSliders) addAndMakeVisible(s);
     for (auto& b : customScaleButtons) addAndMakeVisible(b);
+
+    // Post-FX components
+    addAndMakeVisible(saturationLabel);
+    addAndMakeVisible(diffusionLabel);
+    addAndMakeVisible(lofiLabel);
+    addAndMakeVisible(reverbLabel);
+    addAndMakeVisible(filterLabel);
+    addPair(satDriveLabel, saturationDriveSlider);
+    addPair(satMixLabel, saturationMixSlider);
+    addPair(diffAmtLabel, diffusionAmountSlider);
+    addPair(diffMixLabel, diffusionMixSlider);
+    addPair(lofiAmtLabel, lofiAmountSlider);
+    addPair(lofiMixLabel, lofiMixSlider);
+    addPair(revDecayLabel, reverbDecaySlider);
+    addPair(revDampLabel, reverbDampingSlider);
+    addPair(revMixLabel, reverbMixSlider);
+    addPair(hpfLabel, highpassFreqSlider);
+    addPair(lpfLabel, lowpassFreqSlider);
 
     // Attachments
     auto& vts = processor.apvts;
@@ -266,6 +294,19 @@ KeyAwarePitchDelayAudioProcessorEditor::KeyAwarePitchDelayAudioProcessorEditor (
     for (int i = 0; i < kScaleButtons; ++i)
         customScaleAttach[i] = std::make_unique<APVTS::ButtonAttachment>(vts, scaleIds[i], customScaleButtons[(size_t) i]);
 
+    // Post-FX attachments
+    saturationDriveAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::saturationDrive, saturationDriveSlider);
+    saturationMixAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::saturationMix, saturationMixSlider);
+    diffusionAmountAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::diffusionAmount, diffusionAmountSlider);
+    diffusionMixAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::diffusionMix, diffusionMixSlider);
+    lofiAmountAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::lofiAmount, lofiAmountSlider);
+    lofiMixAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::lofiMix, lofiMixSlider);
+    reverbDecayAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::reverbDecay, reverbDecaySlider);
+    reverbDampingAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::reverbDamping, reverbDampingSlider);
+    reverbMixAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::reverbMix, reverbMixSlider);
+    highpassFreqAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::highpassFreq, highpassFreqSlider);
+    lowpassFreqAttach = std::make_unique<APVTS::SliderAttachment>(vts, kapd::param::lowpassFreq, lowpassFreqSlider);
+
     startTimerHz(10);
     refreshVisibility();
 }
@@ -277,309 +318,207 @@ KeyAwarePitchDelayAudioProcessorEditor::~KeyAwarePitchDelayAudioProcessorEditor(
 
 void KeyAwarePitchDelayAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    auto bounds = getLocalBounds();
-    juce::Random rng;
     const int w = getWidth();
     const int h = getHeight();
 
-    // === PALETTE - Y2K / Digital Collage ===
-    const auto deepBlack = juce::Colour(0xFF0A0A0F);
-    const auto darkPurple = juce::Colour(0xFF1A1025);
-    const auto midPurple = juce::Colour(0xFF2D1B3D);
-    const auto neonCyan = juce::Colour(0xFF00FFFF);
-    const auto neonMagenta = juce::Colour(0xFFFF00FF);
-    const auto acidGreen = juce::Colour(0xFF39FF14);
-    const auto hotPink = juce::Colour(0xFFFF1493);
-    const auto chrome = juce::Colour(0xFFC0C0C0);
-    const auto holoPink = juce::Colour(0xFFFFB6C1);
-    const auto holoBlue = juce::Colour(0xFF87CEEB);
-    const auto holoGreen = juce::Colour(0xFF98FB98);
+    // Industrial palette
+    const auto panelDark = juce::Colour(0xFF1A1A1E);
+    const auto panelMid = juce::Colour(0xFF2A2A30);
+    const auto metalDark = juce::Colour(0xFF4A4A52);
+    const auto metalMid = juce::Colour(0xFF6A6A72);
+    const auto tealPanel = juce::Colour(0xFF2D4A4A);
+    const auto tealAccent = juce::Colour(0xFF4A8888);
+    const auto hotPink = juce::Colour(0xFFFF4488);
+    const auto chrome = juce::Colour(0xFFB8B8C0);
+    const auto rustOrange = juce::Colour(0xFFB86830);
 
-    // === BASE: Dark gradient with purple tones ===
+    // === BASE: Dark industrial panel ===
     {
-        juce::ColourGradient bg(deepBlack, 0, 0, darkPurple, (float)w, (float)h, false);
-        bg.addColour(0.3, midPurple.darker(0.3f));
-        bg.addColour(0.7, darkPurple);
+        juce::ColourGradient bg(panelMid, 0, 0, panelDark, (float)w, (float)h, false);
+        bg.addColour(0.5, panelDark.brighter(0.05f));
         g.setGradientFill(bg);
-        g.fillRect(bounds);
+        g.fillRect(0, 0, w, h);
     }
 
-    // === LAYER 1: Holographic/iridescent sweep ===
-    rng.setSeed(42);
-    for (int i = 0; i < 5; ++i)
-    {
-        float startX = rng.nextFloat() * w * 0.3f;
-        float startY = rng.nextFloat() * h;
-        float endX = startX + w * 0.7f;
-        float endY = startY + rng.nextFloat() * 100 - 50;
-
-        juce::ColourGradient holo(holoPink.withAlpha(0.03f), startX, startY,
-                                   holoBlue.withAlpha(0.03f), endX, endY, false);
-        holo.addColour(0.5, holoGreen.withAlpha(0.02f));
-        g.setGradientFill(holo);
-        g.fillRect(0, (int)startY - 30, w, 60);
-    }
-
-    // === LAYER 2: Scattered "window" frames - Y2K UI aesthetic ===
-    rng.setSeed(555);
-    for (int i = 0; i < 8; ++i)
-    {
-        int fx = rng.nextInt(w) - 50;
-        int fy = rng.nextInt(h) - 50;
-        int fw = rng.nextInt(200) + 80;
-        int fh = rng.nextInt(150) + 60;
-        float alpha = rng.nextFloat() * 0.06f + 0.02f;
-
-        // Window fill - semi-transparent
-        g.setColour(midPurple.withAlpha(alpha));
-        g.fillRect(fx, fy, fw, fh);
-
-        // Title bar - chrome gradient
-        juce::ColourGradient titleBar(chrome.withAlpha(alpha * 2), (float)fx, (float)fy,
-                                       chrome.darker(0.4f).withAlpha(alpha * 2), (float)fx, (float)(fy + 18), false);
-        g.setGradientFill(titleBar);
-        g.fillRect(fx, fy, fw, 18);
-
-        // Window border - neon accent
-        auto borderColor = (i % 3 == 0) ? neonCyan : (i % 3 == 1) ? neonMagenta : acidGreen;
-        g.setColour(borderColor.withAlpha(alpha * 1.5f));
-        g.drawRect(fx, fy, fw, fh, 1);
-
-        // Window buttons (dots in title bar)
-        for (int b = 0; b < 3; ++b)
-        {
-            g.setColour(chrome.withAlpha(alpha * 3));
-            g.fillEllipse((float)(fx + fw - 14 - b * 12), (float)(fy + 5), 8.0f, 8.0f);
-        }
-    }
-
-    // === LAYER 3: Dithering pattern - checkered noise ===
-    rng.setSeed(888);
-    for (int y = 0; y < h; y += 2)
-    {
-        for (int x = 0; x < w; x += 2)
-        {
-            if ((x + y) % 4 == 0)
-            {
-                float noise = rng.nextFloat();
-                if (noise > 0.7f)
-                {
-                    g.setColour(juce::Colours::white.withAlpha(0.015f));
-                    g.fillRect(x, y, 1, 1);
-                }
-            }
-        }
-    }
-
-    // === LAYER 4: CRT Scanlines ===
-    for (int y = 0; y < h; y += 3)
-    {
-        float alpha = 0.08f + std::sin(y * 0.02f) * 0.02f;
-        g.setColour(juce::Colours::black.withAlpha(alpha));
-        g.fillRect(0, y, w, 1);
-    }
-
-    // === LAYER 5: RGB color shift / glitch bands ===
-    rng.setSeed(333);
-    for (int i = 0; i < 6; ++i)
-    {
-        int gy = rng.nextInt(h);
-        int gh = rng.nextInt(20) + 5;
-        int offset = rng.nextInt(8) - 4;
-
-        // Red channel shift
-        g.setColour(juce::Colour(0xFFFF0000).withAlpha(0.04f));
-        g.fillRect(offset, gy, w, gh);
-
-        // Cyan channel shift (opposite)
-        g.setColour(neonCyan.withAlpha(0.03f));
-        g.fillRect(-offset, gy + 1, w, gh);
-    }
-
-    // === LAYER 6: Chrome/metallic diagonal streaks ===
-    rng.setSeed(222);
-    for (int i = 0; i < 12; ++i)
-    {
-        float x1 = rng.nextFloat() * w;
-        float y1 = rng.nextFloat() * h;
-        float len = rng.nextFloat() * 300 + 100;
-        float angle = 0.7f + rng.nextFloat() * 0.3f; // ~40-60 degrees
-
-        juce::ColourGradient streak(chrome.withAlpha(0.0f), x1, y1,
-                                     chrome.withAlpha(0.08f), x1 + len * 0.5f, y1 + len * 0.5f, false);
-        streak.addColour(0.5, chrome.withAlpha(0.12f));
-        streak.addColour(1.0, chrome.withAlpha(0.0f));
-
-        g.setGradientFill(streak);
-        g.drawLine(x1, y1, x1 + len * std::cos(angle), y1 + len * std::sin(angle), 2.0f);
-    }
-
-    // === LAYER 7: Scattered UI symbols / icons ===
-    rng.setSeed(666);
-    juce::StringArray symbols = { "+", "x", "o", "*", "//", "[]", "<>", "::", "##" };
-    g.setFont(juce::Font(10.0f));
-    for (int i = 0; i < 40; ++i)
+    // === BRUSHED METAL TEXTURE ===
+    juce::Random rng(777);
+    for (int i = 0; i < 400; ++i)
     {
         int sx = rng.nextInt(w);
         int sy = rng.nextInt(h);
-        auto symbolColor = (i % 4 == 0) ? neonCyan : (i % 4 == 1) ? neonMagenta :
-                           (i % 4 == 2) ? acidGreen : chrome;
-        g.setColour(symbolColor.withAlpha(rng.nextFloat() * 0.15f + 0.05f));
-        g.drawText(symbols[rng.nextInt(symbols.size())], sx, sy, 20, 12, juce::Justification::centred);
+        int len = rng.nextInt(80) + 20;
+        float alpha = rng.nextFloat() * 0.03f + 0.01f;
+        g.setColour(chrome.withAlpha(alpha));
+        g.drawLine((float)sx, (float)sy, (float)(sx + len), (float)sy, 0.5f);
     }
 
-    // === LAYER 8: Neon glow spots ===
-    rng.setSeed(111);
-    for (int i = 0; i < 8; ++i)
-    {
-        float gx = rng.nextFloat() * w;
-        float gy = rng.nextFloat() * h;
-        float radius = rng.nextFloat() * 100 + 50;
-        auto glowColor = (i % 3 == 0) ? neonCyan : (i % 3 == 1) ? neonMagenta : hotPink;
-
-        juce::ColourGradient glow(glowColor.withAlpha(0.06f), gx, gy,
-                                   juce::Colours::transparentBlack, gx + radius, gy, true);
-        g.setGradientFill(glow);
-        g.fillEllipse(gx - radius, gy - radius, radius * 2, radius * 2);
-    }
-
-    // === LAYER 9: CD/holographic reflection arc ===
-    {
-        float cx = w * 0.7f;
-        float cy = h * 0.4f;
-        float arcRadius = 400.0f;
-
-        for (int a = 0; a < 180; a += 2)
-        {
-            float angle = a * 3.14159f / 180.0f;
-            float x = cx + arcRadius * std::cos(angle);
-            float y = cy + arcRadius * std::sin(angle) * 0.3f; // Elliptical
-
-            // Rainbow shift based on angle
-            float hue = (float)a / 180.0f;
-            auto rainbowColor = juce::Colour::fromHSV(hue, 0.7f, 1.0f, 0.04f);
-            g.setColour(rainbowColor);
-            g.fillEllipse(x - 3, y - 3, 6, 6);
-        }
-    }
-
-    // === LAYER 10: Decorative border - layered neon ===
-    // Outer glow
-    g.setColour(neonMagenta.withAlpha(0.1f));
-    g.drawRect(bounds.reduced(2), 3);
-    g.setColour(neonCyan.withAlpha(0.08f));
-    g.drawRect(bounds.reduced(5), 2);
-
-    // Corner accents
-    int cornerSize = 30;
-    g.setColour(acidGreen.withAlpha(0.15f));
-    // Top-left
-    g.drawLine(5, 5, 5 + cornerSize, 5, 2);
-    g.drawLine(5, 5, 5, 5 + cornerSize, 2);
-    // Top-right
-    g.drawLine((float)(w - 5), 5, (float)(w - 5 - cornerSize), 5, 2);
-    g.drawLine((float)(w - 5), 5, (float)(w - 5), 5 + cornerSize, 2);
-    // Bottom-left
-    g.drawLine(5, (float)(h - 5), 5 + cornerSize, (float)(h - 5), 2);
-    g.drawLine(5, (float)(h - 5), 5, (float)(h - 5 - cornerSize), 2);
-    // Bottom-right
-    g.drawLine((float)(w - 5), (float)(h - 5), (float)(w - 5 - cornerSize), (float)(h - 5), 2);
-    g.drawLine((float)(w - 5), (float)(h - 5), (float)(w - 5), (float)(h - 5 - cornerSize), 2);
-
-    // === LAYER 11: Film grain overlay ===
+    // === WEATHERED SCRATCHES ===
     rng.setSeed(999);
-    for (int i = 0; i < 3000; ++i)
+    for (int i = 0; i < 50; ++i)
     {
-        int gx = rng.nextInt(w);
-        int gy = rng.nextInt(h);
-        float alpha = rng.nextFloat() * 0.05f;
-        g.setColour(rng.nextBool() ? juce::Colours::white.withAlpha(alpha)
-                                    : juce::Colours::black.withAlpha(alpha));
-        g.fillRect(gx, gy, 1, 1);
+        int sx = rng.nextInt(w);
+        int sy = rng.nextInt(h);
+        int ex = sx + rng.nextInt(100) - 50;
+        int ey = sy + rng.nextInt(60) - 30;
+        g.setColour(juce::Colours::black.withAlpha(rng.nextFloat() * 0.1f + 0.02f));
+        g.drawLine((float)sx, (float)sy, (float)ex, (float)ey, rng.nextFloat() * 1.5f + 0.5f);
     }
 
-    // === TITLE: Chrome/neon text with glow ===
-    // Glow layer
-    g.setColour(neonCyan.withAlpha(0.3f));
-    g.setFont(juce::Font(18.0f, juce::Font::bold));
-    g.drawText("KEYAWARE PITCH DELAY", 11, 9, w - 20, 22, juce::Justification::centredLeft);
+    // === PANEL SECTIONS ===
+    // Main control panel (teal tinted)
+    auto mainPanel = juce::Rectangle<int>(8, 35, w - 220, 160);
+    {
+        juce::ColourGradient panel(tealPanel.darker(0.3f), (float)mainPanel.getX(), (float)mainPanel.getY(),
+                                    tealPanel.darker(0.5f), (float)mainPanel.getX(), (float)mainPanel.getBottom(), false);
+        g.setGradientFill(panel);
+        g.fillRoundedRectangle(mainPanel.toFloat(), 4.0f);
+        g.setColour(metalDark);
+        g.drawRoundedRectangle(mainPanel.toFloat(), 4.0f, 1.5f);
+    }
 
-    // Magenta offset (chromatic aberration)
-    g.setColour(neonMagenta.withAlpha(0.2f));
-    g.drawText("KEYAWARE PITCH DELAY", 13, 11, w - 20, 22, juce::Justification::centredLeft);
+    // Post-FX panel (right side)
+    auto fxPanel = juce::Rectangle<int>(w - 205, 35, 197, h - 45);
+    {
+        juce::ColourGradient panel(panelMid.brighter(0.1f), (float)fxPanel.getX(), (float)fxPanel.getY(),
+                                    panelDark, (float)fxPanel.getX(), (float)fxPanel.getBottom(), false);
+        g.setGradientFill(panel);
+        g.fillRoundedRectangle(fxPanel.toFloat(), 4.0f);
+        g.setColour(metalDark);
+        g.drawRoundedRectangle(fxPanel.toFloat(), 4.0f, 1.5f);
 
-    // Main text - chrome
+        // Section label
+        g.setColour(hotPink);
+        g.setFont(juce::Font(juce::FontOptions(12.0f).withStyle("Bold")));
+        g.drawText("POST-FX", fxPanel.getX() + 8, fxPanel.getY() + 4, 80, 16, juce::Justification::centredLeft);
+    }
+
+    // Sequencer panel
+    auto seqPanel = juce::Rectangle<int>(8, 200, w - 220, h - 210);
+    {
+        juce::ColourGradient panel(panelMid, (float)seqPanel.getX(), (float)seqPanel.getY(),
+                                    panelDark.brighter(0.05f), (float)seqPanel.getX(), (float)seqPanel.getBottom(), false);
+        g.setGradientFill(panel);
+        g.fillRoundedRectangle(seqPanel.toFloat(), 4.0f);
+        g.setColour(metalDark);
+        g.drawRoundedRectangle(seqPanel.toFloat(), 4.0f, 1.5f);
+    }
+
+    // === SCREWS / RIVETS ===
+    auto drawScrew = [&](int x, int y) {
+        g.setColour(metalDark);
+        g.fillEllipse((float)x - 5, (float)y - 5, 10.0f, 10.0f);
+        g.setColour(metalMid);
+        g.fillEllipse((float)x - 4, (float)y - 4, 8.0f, 8.0f);
+        g.setColour(panelDark);
+        g.drawLine((float)x - 2, (float)y, (float)x + 2, (float)y, 1.5f);
+    };
+
+    drawScrew(20, 45);
+    drawScrew(w - 225, 45);
+    drawScrew(20, h - 20);
+    drawScrew(w - 225, h - 20);
+    drawScrew(w - 20, 45);
+    drawScrew(w - 20, h - 20);
+
+    // === TITLE ===
+    // Embossed/engraved look
+    g.setColour(juce::Colours::black.withAlpha(0.5f));
+    g.setFont(juce::Font(juce::FontOptions(20.0f).withStyle("Bold")));
+    g.drawText("KEYAWARE PITCH DELAY", 13, 9, w - 230, 24, juce::Justification::centredLeft);
+
     g.setColour(chrome);
-    g.setFont(juce::Font(17.0f, juce::Font::bold));
-    g.drawText("KEYAWARE PITCH DELAY", 12, 10, w - 20, 20, juce::Justification::centredLeft);
+    g.drawText("KEYAWARE PITCH DELAY", 12, 8, w - 230, 24, juce::Justification::centredLeft);
+
+    // Accent line under title
+    g.setColour(hotPink);
+    g.fillRect(12, 30, 200, 2);
+
+    // === VU METER STYLE DECORATION (subtle) ===
+    for (int i = 0; i < 12; ++i)
+    {
+        float barX = (float)(w - 195 + i * 15);
+        float barH = 30.0f + std::sin(i * 0.5f) * 15.0f;
+        auto barColor = (i > 8) ? rustOrange : (i > 5) ? tealAccent.brighter(0.2f) : tealAccent;
+        g.setColour(barColor.withAlpha(0.15f));
+        g.fillRect(barX, (float)(h - 30 - barH), 10.0f, barH);
+    }
+
+    // Version tag
+    g.setColour(chrome.withAlpha(0.4f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
+    g.drawText("v1.0 AAAPLUGIN", w - 100, h - 18, 90, 14, juce::Justification::centredRight);
 }
 
 void KeyAwarePitchDelayAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced(10);
+    auto area = getLocalBounds().reduced(8);
     area.removeFromTop(28);
 
-    // Single row for ALL controls - very compact
-    auto controlsRow = area.removeFromTop(52);
+    // Right panel for post-FX
+    auto fxArea = area.removeFromRight(200);
+    fxArea.removeFromTop(8);
+
+    // Main area
+    area.removeFromRight(8); // gap
+
+    // === TOP CONTROL ROW ===
+    auto controlsRow = area.removeFromTop(55);
     {
         auto r = controlsRow;
-        auto placeControl = [](juce::Rectangle<int> area, juce::Label& l, juce::Component& c, int labelH = 14, int controlH = 26)
-        {
+        auto placeControl = [](juce::Rectangle<int> area, juce::Label& l, juce::Component& c, int labelH = 14, int controlH = 28) {
             l.setBounds(area.removeFromTop(labelH));
             c.setBounds(area.removeFromTop(controlH));
         };
 
-        placeControl(r.removeFromLeft(55).reduced(2), keyRootLabel, keyRootBox);
-        placeControl(r.removeFromLeft(100).reduced(2), scaleTypeLabel, scaleTypeBox);
-        placeControl(r.removeFromLeft(65).reduced(2), modeLabel, modeButton);
-        placeControl(r.removeFromLeft(60).reduced(2), routingLabel, routingButton);
-        placeControl(r.removeFromLeft(45).reduced(2), tempoSyncLabel, tempoSyncButton);
-        placeControl(r.removeFromLeft(75).reduced(2), delayDivisionLabel, delayDivisionBox);
-        placeControl(r.removeFromLeft(75).reduced(2), pitchSourceLabel, pitchSourceBox);
+        placeControl(r.removeFromLeft(50).reduced(2), keyRootLabel, keyRootBox);
+        placeControl(r.removeFromLeft(90).reduced(2), scaleTypeLabel, scaleTypeBox);
+        placeControl(r.removeFromLeft(60).reduced(2), modeLabel, modeButton);
+        placeControl(r.removeFromLeft(55).reduced(2), routingLabel, routingButton);
+        placeControl(r.removeFromLeft(40).reduced(2), tempoSyncLabel, tempoSyncButton);
+        placeControl(r.removeFromLeft(70).reduced(2), delayDivisionLabel, delayDivisionBox);
+        placeControl(r.removeFromLeft(65).reduced(2), pitchSourceLabel, pitchSourceBox);
         placeControl(r.removeFromLeft(45).reduced(2), trackingLabel, trackingSourceButton);
-        placeControl(r.removeFromLeft(75).reduced(2), fixedNoteLabel, fixedNoteBox);
+        placeControl(r.removeFromLeft(70).reduced(2), fixedNoteLabel, fixedNoteBox);
         placeControl(r.removeFromLeft(45).reduced(2), snapToChordLabel, snapToChordButton);
-        placeControl(r.removeFromLeft(80).reduced(2), chordSnapModeLabel, chordSnapModeBox);
-        placeControl(r.removeFromLeft(50).reduced(2), advanceOnTransientLabel, advanceOnTransientButton);
+        placeControl(r.removeFromLeft(70).reduced(2), chordSnapModeLabel, chordSnapModeBox);
+        placeControl(r.removeFromLeft(45).reduced(2), advanceOnTransientLabel, advanceOnTransientButton);
     }
 
-    // Knobs row: delay ms, sensitivity, feedback, mix, output, smoothing - LARGE
-    auto knobsRow = area.removeFromTop(140);
+    // === KNOBS ROW ===
+    auto knobsRow = area.removeFromTop(110);
     {
         auto r = knobsRow.reduced(0, 4);
         auto knobW = r.getWidth() / 6;
-        auto placeKnob = [](juce::Rectangle<int> rr, juce::Label& l, juce::Component& c)
-        {
-            l.setBounds(rr.removeFromTop(18));
+        auto placeKnob = [](juce::Rectangle<int> rr, juce::Label& l, juce::Component& c) {
+            l.setBounds(rr.removeFromTop(14));
             c.setBounds(rr);
         };
 
-        placeKnob(r.removeFromLeft(knobW).reduced(6), delayMsLabel, delayMsSlider);
-        placeKnob(r.removeFromLeft(knobW).reduced(6), transientSensitivityLabel, transientSensitivitySlider);
-        placeKnob(r.removeFromLeft(knobW).reduced(6), feedbackLabel, feedbackSlider);
-        placeKnob(r.removeFromLeft(knobW).reduced(6), mixLabel, mixSlider);
-        placeKnob(r.removeFromLeft(knobW).reduced(6), outputGainLabel, outputGainSlider);
-        placeKnob(r.removeFromLeft(knobW).reduced(6), smoothingLabel, smoothingSlider);
+        placeKnob(r.removeFromLeft(knobW).reduced(4), delayMsLabel, delayMsSlider);
+        placeKnob(r.removeFromLeft(knobW).reduced(4), transientSensitivityLabel, transientSensitivitySlider);
+        placeKnob(r.removeFromLeft(knobW).reduced(4), feedbackLabel, feedbackSlider);
+        placeKnob(r.removeFromLeft(knobW).reduced(4), mixLabel, mixSlider);
+        placeKnob(r.removeFromLeft(knobW).reduced(4), outputGainLabel, outputGainSlider);
+        placeKnob(r.removeFromLeft(knobW).reduced(4), smoothingLabel, smoothingSlider);
     }
 
+    // === SEQUENCER SECTION ===
+    auto stepsArea = area.reduced(0, 4);
 
-    // Remaining area: steps + step level/pan + custom scale editor
-    auto stepsArea = area.reduced(0, 6);
+    // Sequence length slider
+    auto seqRow = stepsArea.removeFromTop(32);
+    sequenceLengthLabel.setBounds(seqRow.removeFromLeft(50).reduced(2));
+    sequenceLengthSlider.setBounds(seqRow.removeFromLeft(150).reduced(2));
 
-    // Sequence length slider - right above the step sliders
-    auto seqRow = stepsArea.removeFromTop(36);
-    sequenceLengthLabel.setBounds(seqRow.removeFromLeft(70).reduced(4));
-    sequenceLengthSlider.setBounds(seqRow.removeFromLeft(200).reduced(4));
-
-    // Step sliders - interval and tone share the same space (toggle visibility)
-    auto stepsLabelArea = stepsArea.removeFromTop(22);
+    // Step sliders label
+    auto stepsLabelArea = stepsArea.removeFromTop(18);
     intervalStepsLabel.setBounds(stepsLabelArea);
-    toneStepsLabel.setBounds(stepsLabelArea);  // Same position, visibility toggled
+    toneStepsLabel.setBounds(stepsLabelArea);
 
-    auto stepSliderRow = stepsArea.removeFromTop(140);
+    // Step sliders
+    auto stepSliderRow = stepsArea.removeFromTop(120);
     auto stepW = stepSliderRow.getWidth() / kMaxSteps;
 
-    // Position both sets of sliders in the same space
     auto intervalRowCopy = stepSliderRow;
     auto toneRowCopy = stepSliderRow;
     for (int i = 0; i < kMaxSteps; ++i)
@@ -588,25 +527,78 @@ void KeyAwarePitchDelayAudioProcessorEditor::resized()
         toneStepSliders[i].setBounds(toneRowCopy.removeFromLeft(stepW).reduced(4));
     }
 
-    // Mixer-style level faders - tall and prominent
-    stepLevelLabel.setBounds(stepsArea.removeFromTop(20));
-    auto levelRow = stepsArea.removeFromTop(120);
+    // Level faders
+    stepLevelLabel.setBounds(stepsArea.removeFromTop(16));
+    auto levelRow = stepsArea.removeFromTop(90);
     stepW = levelRow.getWidth() / kMaxSteps;
     for (int i = 0; i < kMaxSteps; ++i)
-        stepLevelSliders[i].setBounds(levelRow.removeFromLeft(stepW).reduced(8, 4));
+        stepLevelSliders[i].setBounds(levelRow.removeFromLeft(stepW).reduced(6, 2));
 
-    // Pan sliders - horizontal, wider for easy L/R control
-    stepPanLabel.setBounds(stepsArea.removeFromTop(20));
-    auto panRow = stepsArea.removeFromTop(50);
+    // Pan sliders
+    stepPanLabel.setBounds(stepsArea.removeFromTop(16));
+    auto panRow = stepsArea.removeFromTop(40);
     stepW = panRow.getWidth() / kMaxSteps;
     for (int i = 0; i < kMaxSteps; ++i)
-        stepPanSliders[i].setBounds(panRow.removeFromLeft(stepW).reduced(6, 4));
+        stepPanSliders[i].setBounds(panRow.removeFromLeft(stepW).reduced(4, 2));
 
-    customScaleLabel.setBounds(stepsArea.removeFromTop(18));
-    auto scaleRow = stepsArea.removeFromTop(30);
+    // Custom scale
+    customScaleLabel.setBounds(stepsArea.removeFromTop(16));
+    auto scaleRow = stepsArea.removeFromTop(28);
     auto scW = scaleRow.getWidth() / kScaleButtons;
     for (int i = 0; i < kScaleButtons; ++i)
-        customScaleButtons[(size_t) i].setBounds(scaleRow.removeFromLeft(scW).reduced(2));
+        customScaleButtons[(size_t) i].setBounds(scaleRow.removeFromLeft(scW).reduced(1));
+
+    // === POST-FX PANEL LAYOUT ===
+    fxArea.removeFromTop(20); // title space
+
+    auto placeSmallKnobPair = [](juce::Rectangle<int>& area, juce::Label& title,
+                                  juce::Label& l1, juce::Slider& s1,
+                                  juce::Label& l2, juce::Slider& s2, int knobSize = 50) {
+        auto section = area.removeFromTop(knobSize + 30);
+        title.setBounds(section.removeFromTop(14));
+        auto knobRow = section;
+        auto halfW = knobRow.getWidth() / 2;
+
+        auto k1 = knobRow.removeFromLeft(halfW).reduced(4);
+        l1.setBounds(k1.removeFromBottom(12));
+        s1.setBounds(k1);
+
+        auto k2 = knobRow.reduced(4);
+        l2.setBounds(k2.removeFromBottom(12));
+        s2.setBounds(k2);
+
+        area.removeFromTop(4);
+    };
+
+    auto placeTripleKnob = [](juce::Rectangle<int>& area, juce::Label& title,
+                               juce::Label& l1, juce::Slider& s1,
+                               juce::Label& l2, juce::Slider& s2,
+                               juce::Label& l3, juce::Slider& s3, int knobSize = 45) {
+        auto section = area.removeFromTop(knobSize + 30);
+        title.setBounds(section.removeFromTop(14));
+        auto knobRow = section;
+        auto thirdW = knobRow.getWidth() / 3;
+
+        auto k1 = knobRow.removeFromLeft(thirdW).reduced(2);
+        l1.setBounds(k1.removeFromBottom(12));
+        s1.setBounds(k1);
+
+        auto k2 = knobRow.removeFromLeft(thirdW).reduced(2);
+        l2.setBounds(k2.removeFromBottom(12));
+        s2.setBounds(k2);
+
+        auto k3 = knobRow.reduced(2);
+        l3.setBounds(k3.removeFromBottom(12));
+        s3.setBounds(k3);
+
+        area.removeFromTop(4);
+    };
+
+    placeSmallKnobPair(fxArea, saturationLabel, satDriveLabel, saturationDriveSlider, satMixLabel, saturationMixSlider);
+    placeSmallKnobPair(fxArea, diffusionLabel, diffAmtLabel, diffusionAmountSlider, diffMixLabel, diffusionMixSlider);
+    placeSmallKnobPair(fxArea, lofiLabel, lofiAmtLabel, lofiAmountSlider, lofiMixLabel, lofiMixSlider);
+    placeTripleKnob(fxArea, reverbLabel, revDecayLabel, reverbDecaySlider, revDampLabel, reverbDampingSlider, revMixLabel, reverbMixSlider);
+    placeSmallKnobPair(fxArea, filterLabel, hpfLabel, highpassFreqSlider, lpfLabel, lowpassFreqSlider);
 
     refreshVisibility();
 }
@@ -623,11 +615,9 @@ void KeyAwarePitchDelayAudioProcessorEditor::refreshVisibility()
     intervalStepsLabel.setVisible(intervalMode);
     toneStepsLabel.setVisible(! intervalMode);
 
-    // Update routing button text based on state
     const bool isParallel = processor.apvts.getRawParameterValue(kapd::param::routing)->load() > 0.5f;
     routingButton.setButtonText(isParallel ? "Parallel" : "Serial");
 
-    // Show/hide step sliders based on sequence length
     const int seqLen = (int) processor.apvts.getRawParameterValue(kapd::param::sequenceLength)->load();
     for (int i = 0; i < kMaxSteps; ++i)
     {
@@ -676,7 +666,7 @@ void KeyAwarePitchDelayAudioProcessorEditor::refreshVisibility()
     chordSnapModeBox.setAlpha(snap ? 1.0f : 0.35f);
 
     const auto scaleType = (int) processor.apvts.getRawParameterValue(kapd::param::scaleType)->load();
-    const bool custom = (scaleType == 7); // see ChoiceLists::scaleTypes() ordering
+    const bool custom = (scaleType == 7);
 
     customScaleLabel.setEnabled(custom);
     customScaleLabel.setAlpha(custom ? 1.0f : 0.35f);
