@@ -333,46 +333,43 @@ namespace kapd
     };
 
     //==============================
-    // High-quality granular pitch shifter with 4 overlapping grains,
-    // larger grain size, and cubic interpolation for smooth, artifact-free shifting
-    class GranularPitchShifter
+    // Tape-style variable-rate pitch shifter
+    // Simply plays audio back at different speeds - like a sampler or varispeed tape.
+    // No granular artifacts. Pitch changes naturally with playback rate.
+    // Duration changes with pitch (faster = shorter, slower = longer) which is
+    // musically natural and artifact-free.
+    class GranularPitchShifter  // keeping the name for compatibility
     {
     public:
-        void prepare(double newSampleRate, int grainSizeSamples = 2048)
+        void prepare(double newSampleRate, int /*unused*/ = 0)
         {
             sampleRate = (float) newSampleRate;
-            // Larger grains = smoother, less flutter (50-100ms is good for musical content)
-            grainSize = juce::jlimit(512, 8192, grainSizeSamples);
-            phaseInc = 1.0f / (float) grainSize;
 
-            // Buffer needs to be large enough for grain + read offset variations
-            delayOffset = grainSize * 3;
-            bufferSize = juce::nextPowerOfTwo(grainSize * 16);
+            // Large buffer for varispeed playback
+            bufferSize = 262144; // ~6 seconds at 44.1k
             buffer.assign((size_t) bufferSize, 0.0f);
 
             writePos = 0;
+            readPos = 0.0f;
 
             currentRatio = 1.0f;
             targetRatio = 1.0f;
-            smoothingCoeff = 1.0f;
+            smoothingCoeff = 0.001f; // very smooth transitions
 
-            // 4 grains at 25% phase offsets for very smooth crossfading
-            for (int i = 0; i < kNumGrains; ++i)
-                grains[i].phase = (float) i / (float) kNumGrains;
-
-            resetReadPositions();
+            // Crossfade state for when read catches up to write
+            crossfadePhase = 0.0f;
+            crossfadeActive = false;
+            altReadPos = 0.0f;
         }
 
         void reset()
         {
             std::fill(buffer.begin(), buffer.end(), 0.0f);
             writePos = 0;
+            readPos = 0.0f;
             currentRatio = targetRatio;
-
-            for (int i = 0; i < kNumGrains; ++i)
-                grains[i].phase = (float) i / (float) kNumGrains;
-
-            resetReadPositions();
+            crossfadePhase = 0.0f;
+            crossfadeActive = false;
         }
 
         void setTargetRatio(float ratio)
@@ -395,96 +392,100 @@ namespace kapd
 
         float processSample(float in)
         {
+            // Write input to buffer
             buffer[(size_t) writePos] = in;
-            writePos = (writePos + 1) & (bufferSize - 1);
+            int prevWritePos = writePos;
+            writePos = (writePos + 1) % bufferSize;
 
-            // Very smooth ratio interpolation
+            // Smooth ratio changes to avoid clicks
             currentRatio += (targetRatio - currentRatio) * smoothingCoeff;
 
-            float out = 0.0f;
-            float windowSum = 0.0f;
+            // Calculate safe read boundaries
+            // Read should stay behind write by a safe margin
+            float safeMargin = 1024.0f;
+            float maxReadPos = (float) prevWritePos - safeMargin;
+            float minReadPos = (float) prevWritePos - (float) bufferSize + safeMargin;
 
-            for (auto& g : grains)
+            // Advance read position at variable rate
+            readPos += currentRatio;
+
+            // Wrap read position
+            while (readPos >= (float) bufferSize) readPos -= (float) bufferSize;
+            while (readPos < 0.0f) readPos += (float) bufferSize;
+
+            // Check if read is getting too close to write (about to overtake)
+            float distanceToWrite = (float) prevWritePos - readPos;
+            if (distanceToWrite < 0) distanceToWrite += (float) bufferSize;
+
+            // If reading too fast and catching up, or too slow and falling behind
+            if (distanceToWrite < safeMargin || distanceToWrite > (float) bufferSize - safeMargin)
             {
-                // Raised cosine window (Hann) - smoother than triangle
-                float w = 0.5f - 0.5f * std::cos(juce::MathConstants<float>::twoPi * g.phase);
-                // Square the window for even smoother transitions
-                w = w * w;
-
-                out += w * readCubic(g.readPos);
-                windowSum += w;
-
-                g.phase += phaseInc;
-                g.readPos = wrapPos(g.readPos + currentRatio);
-
-                if (g.phase >= 1.0f)
+                if (!crossfadeActive)
                 {
-                    g.phase -= 1.0f;
-
-                    // Reset grain read position with slight randomization to reduce comb filtering
-                    float jitter = ((float) ((writePos * 7) % 97) / 97.0f - 0.5f) * 32.0f;
-                    float start = (float) writePos - (float) delayOffset + jitter;
-                    start = wrapPos(start);
-
-                    g.readPos = wrapPos(start + currentRatio * (float) grainSize * g.phase);
+                    // Start crossfade to a safe position
+                    crossfadeActive = true;
+                    crossfadePhase = 0.0f;
+                    // Reset to a safe distance behind write head
+                    altReadPos = (float) prevWritePos - (float) bufferSize * 0.5f;
+                    while (altReadPos < 0.0f) altReadPos += (float) bufferSize;
                 }
             }
 
-            // Normalize by window sum to maintain consistent amplitude
-            if (windowSum > 0.001f)
-                out /= windowSum;
+            float output;
 
-            return out;
+            if (crossfadeActive)
+            {
+                // Crossfade between old and new read positions
+                float fadeOut = 0.5f + 0.5f * std::cos(crossfadePhase * juce::MathConstants<float>::pi);
+                float fadeIn = 1.0f - fadeOut;
+
+                output = fadeOut * readCubic(readPos) + fadeIn * readCubic(altReadPos);
+
+                altReadPos += currentRatio;
+                while (altReadPos >= (float) bufferSize) altReadPos -= (float) bufferSize;
+
+                crossfadePhase += 1.0f / 2048.0f; // ~46ms crossfade at 44.1k
+
+                if (crossfadePhase >= 1.0f)
+                {
+                    crossfadeActive = false;
+                    readPos = altReadPos;
+                }
+            }
+            else
+            {
+                output = readCubic(readPos);
+            }
+
+            return output;
         }
 
     private:
-        static constexpr int kNumGrains = 4;
-
-        struct Grain
-        {
-            float readPos = 0.0f;
-            float phase = 0.0f;
-        };
-
         float sampleRate = 44100.0f;
-        int grainSize = 2048;
-        float phaseInc = 1.0f / 2048.0f;
-
-        int delayOffset = 6144;
-        int bufferSize = 32768;
+        int bufferSize = 262144;
         std::vector<float> buffer;
         int writePos = 0;
-
-        Grain grains[kNumGrains];
+        float readPos = 0.0f;
 
         float currentRatio = 1.0f;
         float targetRatio = 1.0f;
-        float smoothingCoeff = 1.0f;
+        float smoothingCoeff = 0.001f;
 
-        void resetReadPositions()
-        {
-            float start = (float) writePos - (float) delayOffset;
-            start = wrapPos(start);
+        // Crossfade state
+        float crossfadePhase = 0.0f;
+        bool crossfadeActive = false;
+        float altReadPos = 0.0f;
 
-            for (auto& g : grains)
-                g.readPos = wrapPos(start + currentRatio * (float) grainSize * g.phase);
-        }
-
-        float wrapPos(float p) const
-        {
-            while (p < 0.0f) p += (float) bufferSize;
-            while (p >= (float) bufferSize) p -= (float) bufferSize;
-            return p;
-        }
-
-        // Cubic Hermite interpolation - much smoother than linear
+        // High-quality cubic interpolation
         float readCubic(float pos) const
         {
-            pos = wrapPos(pos);
+            while (pos >= (float) bufferSize) pos -= (float) bufferSize;
+            while (pos < 0.0f) pos += (float) bufferSize;
+
             int i1 = (int) pos;
-            int i0 = (i1 - 1 + bufferSize) & (bufferSize - 1);
-            int i2 = (i1 + 1) & (bufferSize - 1);
-            int i3 = (i1 + 2) & (bufferSize - 1);
+            int i0 = (i1 - 1 + bufferSize) % bufferSize;
+            int i2 = (i1 + 1) % bufferSize;
+            int i3 = (i1 + 2) % bufferSize;
 
             float frac = pos - (float) i1;
 
@@ -493,7 +494,7 @@ namespace kapd
             float y2 = buffer[(size_t) i2];
             float y3 = buffer[(size_t) i3];
 
-            // Catmull-Rom spline interpolation
+            // Catmull-Rom spline - smooth, no overshoot
             float c0 = y1;
             float c1 = 0.5f * (y2 - y0);
             float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
