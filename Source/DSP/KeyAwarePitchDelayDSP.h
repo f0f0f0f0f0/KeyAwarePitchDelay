@@ -333,29 +333,32 @@ namespace kapd
     };
 
     //==============================
-    // Granular pitch shifter: two overlapping grains reading from a circular buffer
+    // High-quality granular pitch shifter with 4 overlapping grains,
+    // larger grain size, and cubic interpolation for smooth, artifact-free shifting
     class GranularPitchShifter
     {
     public:
-        void prepare(double newSampleRate, int grainSizeSamples = 512)
+        void prepare(double newSampleRate, int grainSizeSamples = 2048)
         {
             sampleRate = (float) newSampleRate;
-            grainSize = std::max(64, grainSizeSamples);
+            // Larger grains = smoother, less flutter (50-100ms is good for musical content)
+            grainSize = juce::jlimit(512, 8192, grainSizeSamples);
             phaseInc = 1.0f / (float) grainSize;
 
-            // Keep buffer comfortably larger than the grain + delay offset
-            delayOffset = grainSize * 2;
-            bufferSize = juce::nextPowerOfTwo(grainSize * 8);
+            // Buffer needs to be large enough for grain + read offset variations
+            delayOffset = grainSize * 3;
+            bufferSize = juce::nextPowerOfTwo(grainSize * 16);
             buffer.assign((size_t) bufferSize, 0.0f);
 
             writePos = 0;
 
             currentRatio = 1.0f;
             targetRatio = 1.0f;
-            smoothingCoeff = 1.0f; // immediate by default
+            smoothingCoeff = 1.0f;
 
-            grains[0].phase = 0.0f;
-            grains[1].phase = 0.5f;
+            // 4 grains at 25% phase offsets for very smooth crossfading
+            for (int i = 0; i < kNumGrains; ++i)
+                grains[i].phase = (float) i / (float) kNumGrains;
 
             resetReadPositions();
         }
@@ -365,8 +368,10 @@ namespace kapd
             std::fill(buffer.begin(), buffer.end(), 0.0f);
             writePos = 0;
             currentRatio = targetRatio;
-            grains[0].phase = 0.0f;
-            grains[1].phase = 0.5f;
+
+            for (int i = 0; i < kNumGrains; ++i)
+                grains[i].phase = (float) i / (float) kNumGrains;
+
             resetReadPositions();
         }
 
@@ -385,8 +390,6 @@ namespace kapd
 
             float samples = (ms * sampleRate) / 1000.0f;
             samples = std::max(1.0f, samples);
-
-            // standard 1-pole smoothing coefficient
             smoothingCoeff = 1.0f - std::exp(-1.0f / samples);
         }
 
@@ -395,15 +398,21 @@ namespace kapd
             buffer[(size_t) writePos] = in;
             writePos = (writePos + 1) & (bufferSize - 1);
 
-            // Smooth the ratio to avoid zipper noise
+            // Very smooth ratio interpolation
             currentRatio += (targetRatio - currentRatio) * smoothingCoeff;
 
             float out = 0.0f;
+            float windowSum = 0.0f;
 
             for (auto& g : grains)
             {
+                // Raised cosine window (Hann) - smoother than triangle
                 float w = 0.5f - 0.5f * std::cos(juce::MathConstants<float>::twoPi * g.phase);
-                out += w * readInterp(g.readPos);
+                // Square the window for even smoother transitions
+                w = w * w;
+
+                out += w * readCubic(g.readPos);
+                windowSum += w;
 
                 g.phase += phaseInc;
                 g.readPos = wrapPos(g.readPos + currentRatio);
@@ -412,18 +421,25 @@ namespace kapd
                 {
                     g.phase -= 1.0f;
 
-                    // Restart grain at a fixed delay behind write head
-                    float start = (float) writePos - (float) delayOffset;
+                    // Reset grain read position with slight randomization to reduce comb filtering
+                    float jitter = ((float) ((writePos * 7) % 97) / 97.0f - 0.5f) * 32.0f;
+                    float start = (float) writePos - (float) delayOffset + jitter;
                     start = wrapPos(start);
 
                     g.readPos = wrapPos(start + currentRatio * (float) grainSize * g.phase);
                 }
             }
 
+            // Normalize by window sum to maintain consistent amplitude
+            if (windowSum > 0.001f)
+                out /= windowSum;
+
             return out;
         }
 
     private:
+        static constexpr int kNumGrains = 4;
+
         struct Grain
         {
             float readPos = 0.0f;
@@ -431,15 +447,15 @@ namespace kapd
         };
 
         float sampleRate = 44100.0f;
-        int grainSize = 512;
-        float phaseInc = 1.0f / 512.0f;
+        int grainSize = 2048;
+        float phaseInc = 1.0f / 2048.0f;
 
-        int delayOffset = 1024;
-        int bufferSize = 4096;
+        int delayOffset = 6144;
+        int bufferSize = 32768;
         std::vector<float> buffer;
         int writePos = 0;
 
-        Grain grains[2];
+        Grain grains[kNumGrains];
 
         float currentRatio = 1.0f;
         float targetRatio = 1.0f;
@@ -461,15 +477,29 @@ namespace kapd
             return p;
         }
 
-        float readInterp(float pos) const
+        // Cubic Hermite interpolation - much smoother than linear
+        float readCubic(float pos) const
         {
             pos = wrapPos(pos);
-            int i0 = (int) pos;
-            int i1 = (i0 + 1) & (bufferSize - 1);
-            float frac = pos - (float) i0;
-            float a = buffer[(size_t) i0];
-            float b = buffer[(size_t) i1];
-            return a + frac * (b - a);
+            int i1 = (int) pos;
+            int i0 = (i1 - 1 + bufferSize) & (bufferSize - 1);
+            int i2 = (i1 + 1) & (bufferSize - 1);
+            int i3 = (i1 + 2) & (bufferSize - 1);
+
+            float frac = pos - (float) i1;
+
+            float y0 = buffer[(size_t) i0];
+            float y1 = buffer[(size_t) i1];
+            float y2 = buffer[(size_t) i2];
+            float y3 = buffer[(size_t) i3];
+
+            // Catmull-Rom spline interpolation
+            float c0 = y1;
+            float c1 = 0.5f * (y2 - y0);
+            float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+            float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+
+            return ((c3 * frac + c2) * frac + c1) * frac + c0;
         }
     };
 
