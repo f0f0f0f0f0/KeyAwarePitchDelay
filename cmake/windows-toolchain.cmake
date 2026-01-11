@@ -24,7 +24,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
-# Windows-specific flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++")
+# Windows-specific flags - add missing Windows SDK definitions for MinGW
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++ -fpermissive -include cstring -include cstdlib -include cstdio -include cwchar -DCaretPosition_Unknown=0 -DCaretPosition_EndOfLine=1 -DCaretPosition_BeginningOfLine=2 -DJUCE_DISABLE_NATIVE_FILECHOOSERS=1")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -static-libgcc")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -lpthread")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libgcc -static-libstdc++")
